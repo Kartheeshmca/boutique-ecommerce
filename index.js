@@ -12,10 +12,10 @@ import addressRoutes from './Routes/Address.js';
 import cartRoutes from './Routes/Cartitem.js';
 import categoryRoutes from './Routes/Category.js';
 import productRoutes from './Routes/Product.js';
-import wishListRoutes from './Routes/WishList.js';
+import wishListRoutes from './Routes/Wishlist.js';
 import reviewRoutes from "./Routes/Review.js";
 import reportRoutes from "./Routes/Report.js";
-import orderItemRoutes from "./Routes/OrderItem.js";
+import orderItemRoutes from "./Routes/Orderitem.js";
 import offerRoutes from "./Routes/Offer.js";
 import orderRoutes from "./Routes/Order.js";
 import paymentRoutes from "./Routes/Payment.js";
@@ -72,4 +72,5 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 const PORT = process.env.PORT || 7000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
 

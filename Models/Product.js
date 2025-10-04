@@ -1,0 +1,72 @@
+import mongoose from "mongoose";
+
+// Variant sub-schema
+const variantSchema = new mongoose.Schema({
+  color: { type: String, trim: true },
+  size: { type: String, trim: true },
+  sku: { 
+    type: String, 
+    required: true, 
+    uppercase: true, 
+    trim: true,
+    match: [/^[A-Z0-9_-]+$/, "SKU can only contain letters, numbers, underscores, or hyphens"]
+  },
+  stock: { 
+    type: Number, 
+    default: 0, 
+    min: [0, "Stock cannot be negative"],
+    validate: {
+      validator: Number.isInteger,
+      message: "Stock must be an integer value"
+    }
+  },
+  price: { 
+    type: Number, 
+    required: true, 
+    min: [0, "Price cannot be negative"],
+    max: [1000000, "Price cannot exceed 1,000,000"] 
+  },
+});
+
+const productSchema = new mongoose.Schema(
+  {
+    category: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: "Category", 
+      required: [true, "Product must belong to a category"] 
+    },
+    name: { 
+      type: String, 
+      required: [true, "Product name is required"], 
+      trim: true, 
+      minlength: [3, "Product name must be at least 3 characters"],
+      maxlength: [200, "Product name cannot exceed 200 characters"]
+    },
+    description: { 
+      type: String, 
+      trim: true, 
+      maxlength: [2000, "Description cannot exceed 2000 characters"] 
+    },
+    images: [
+      {
+        type: String,
+        trim: true,
+        validate: {
+          validator: (v) =>
+            /^https?:\/\/.*\.(jpeg|jpg|png|webp)$/i.test(v),
+          message:
+            "Image must be a valid URL and end with .jpeg, .jpg, .png, or .webp",
+        },
+      },
+    ],
+    status: { 
+      type: String, 
+      enum: ["active", "inactive"],
+      default: "active" 
+    },
+    variants: [variantSchema], // <-- Add this for multiple variants
+  },
+  { timestamps: true }
+);
+
+export default mongoose.model("Product", productSchema);

@@ -1,4 +1,4 @@
-import CartItem from "../Models/CartItem.js";
+import CartItem from "../Models/Cartitem.js";
 import Product from "../Models/Product.js";
 import mongoose from "mongoose";
 
@@ -126,3 +126,4 @@ export const getUserCart = async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+

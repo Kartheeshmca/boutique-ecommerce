@@ -5,7 +5,7 @@ import {
   getOrderItemById,
   updateOrderItem,
   deleteOrderItem
-} from "../Controller/OrderItem.js";
+} from "../Controller/Orderitem.js";
 import { Auth } from "../Middleware/Auth.js";
 
 const router = express.Router();
@@ -18,3 +18,4 @@ router.put("/update/:id", Auth,updateOrderItem);        // Update
 router.delete("/delete/:id",Auth, deleteOrderItem);     // Delete
 
 export default router;
+

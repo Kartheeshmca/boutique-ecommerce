@@ -63,12 +63,12 @@ export const loginAdmin = async (req, res) => {
 // ---------------- Create Super Admin (one-time) ----------------
 export const createSuperAdmin = async (req, res) => {
   try {
-    const existing = await Admin.findOne({ role: "super admin" });
-    if (existing) return res.status(400).json({ message: "Super Admin already exists" });
-
+    
     const { name, email, password } = req.body;
     if (!name || !email || !password)
       return res.status(400).json({ message: "Name, email, and password are required" });
+    const existing = await Admin.findOne({email});
+    if (existing) return res.status(400).json({ message: "Super Admin already exists" });
 
     if (!emailRegex.test(email))
       return res.status(400).json({ message: "Invalid email format" });

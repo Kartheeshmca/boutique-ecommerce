@@ -7,37 +7,27 @@ import {
   deleteProduct,
   decreaseStock,
   increaseStock,
-  uploadProductImage, // upload handler
-  upload,             // multer middleware
-
+  uploadProductImage,
+  upload,
 } from "../Controller/Product.js";
 import { Auth, authorizeRoles } from "../Middleware/Auth.js";
 
 const router = express.Router();
 
-// Create product (Admin & SuperAdmin)
+// ✅ Public Routes (no login required)
+router.get("/all", getAllProducts);
+router.get("/byId/:id", getProductById);
+
+// 🔒 Protected Routes (Admin / SuperAdmin only)
 router.post("/create", Auth, authorizeRoles("admin", "super admin"), createProduct);
-
-// Get all products (All roles)
-router.get("/all", Auth, authorizeRoles("user", "admin", "super admin"), getAllProducts);
-
-// Get product by ID (All roles)
-router.get("/byId/:id", Auth, authorizeRoles("user", "admin", "super admin"), getProductById);
-
-// Update product (Admin & SuperAdmin)
 router.put("/update/:id", Auth, authorizeRoles("admin", "super admin"), updateProduct);
+router.delete("/delete/:id", Auth, authorizeRoles("admin","super admin"), deleteProduct);
 
-// Delete product (SuperAdmin only)
-router.delete("/delete/:id", Auth, authorizeRoles("super admin"), deleteProduct);
-
-// Decrease stock (Admin & SuperAdmin)
+// 🔒 Stock Management (Admin & SuperAdmin)
 router.post("/stock/decrease", Auth, authorizeRoles("admin", "super admin"), decreaseStock);
-
-// Increase stock (Admin & SuperAdmin)
 router.post("/stock/increase", Auth, authorizeRoles("admin", "super admin"), increaseStock);
 
-// Upload product image
-// Upload product image (Admin & SuperAdmin)
+// 🔒 Upload product image (Admin & SuperAdmin)
 router.post(
   "/upload",
   Auth,
@@ -45,4 +35,5 @@ router.post(
   upload.single("file"),
   uploadProductImage
 );
+
 export default router;

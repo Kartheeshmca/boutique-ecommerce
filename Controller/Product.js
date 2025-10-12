@@ -88,7 +88,7 @@ export const createProduct = async (req, res) => {
   }
 };
 // ------------------- Public Products -------------------
-export const getAllProductsPublic = async (req, res) => {
+export const getAllProducts = async (req, res) => {
   try {
     const {
       search,
@@ -100,66 +100,13 @@ export const getAllProductsPublic = async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    // Only active products for public
+    // Default: users and guests see only active products
     let query = { status: "active" };
 
-    // Search filter
-    if (search) {
-      const regex = { $regex: search, $options: "i" };
-      query.$or = [
-        { name: regex },
-        { description: regex },
-        { "variants.sku": regex },
-        { "variants.color": regex },
-        { "variants.size": regex },
-      ];
-      if (!isNaN(search)) query.$or.push({ "variants.price": Number(search) });
+    // If logged in and role is admin or superadmin → show all products
+    if (req.user && ["admin", "super admin"].includes(req.user.role.toLowerCase())) {
+      query = {}; // override to show all
     }
-
-    // Sorting
-    const sortOrder = order.toLowerCase() === "asc" ? 1 : -1;
-    const sortQuery = {};
-    sortQuery[sortBy] = sortOrder;
-
-    const total = await Product.countDocuments(query);
-    const products = await Product.find(query)
-      .populate("category", "name")
-      .sort(sortQuery)
-      .skip(skip)
-      .limit(Number(limit))
-      .lean();
-
-    if (!products.length) {
-      return res.status(404).json({ success: false, message: "No products found" });
-    }
-
-    res.json({
-      success: true,
-      total,
-      page: Number(page),
-      pages: Math.ceil(total / limit),
-      data: products
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ------------------- Admin Products -------------------
-export const getAllProductsAdmin = async (req, res) => {
-  try {
-    const {
-      search,
-      page = 1,
-      limit = 10,
-      sortBy = "createdAt",
-      order = "desc"
-    } = req.query;
-
-    const skip = (page - 1) * limit;
-
-    // Admin can see all products
-    let query = {};
 
     // Search filter
     if (search) {
@@ -179,6 +126,7 @@ export const getAllProductsAdmin = async (req, res) => {
     const sortQuery = {};
     sortQuery[sortBy] = sortOrder;
 
+    // Fetch data
     const total = await Product.countDocuments(query);
     const products = await Product.find(query)
       .populate("category", "name")
@@ -196,7 +144,7 @@ export const getAllProductsAdmin = async (req, res) => {
       total,
       page: Number(page),
       pages: Math.ceil(total / limit),
-      data: products
+      data: products,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

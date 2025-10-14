@@ -120,18 +120,6 @@ export const forgotPassword = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
 // ---------------- Reset Password ----------------
 
 // ---------------- Reset Password ----------------
@@ -204,40 +192,17 @@ export const getUserById = async (req, res) => {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ---------------- Get All Users ----------------
 // Get All Users with Pagination & Search
 export const getAllUsers = async (req, res) => {
   try {
-    const { search, role, page = 1, limit = 10 } = req.query; // default page 1, limit 10
+    const { search, role,status , page = 1, limit = 10 } = req.query; // default page 1, limit 10
     const query = {};
+// Filter by status if provided
+if (status && ["Active", "Inactive"].includes(status)) {
+  query.status = status;
+}
+
 
     // Search by name, email, phone, role
     if (search) {
@@ -345,24 +310,29 @@ export const updateUserProfile = async (req, res) => {
 };
 
 // Delete user by id (normal or admin)
+// ---------------- Soft Delete User by id ----------------
 export const deleteUserProfile = async (req, res) => {
   try {
     const userId = req.params.id;
 
-    // If normal user, ensure they can only delete their own profile
+    // If normal user, ensure they can only deactivate their own account
     if (req.user.role === "user" && req.user.id !== userId) {
-      return res.status(403).json({ message: "You are not allowed to delete this user" });
+      return res.status(403).json({ message: "You are not allowed to deactivate this user" });
     }
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    await user.deleteOne();
-    res.json({ message: "User deleted successfully" });
+    // Soft delete: mark as inactive
+    user.status = "Inactive";
+    await user.save();
+
+    res.json({ message: "User marked as Inactive successfully" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
+
 
 
 

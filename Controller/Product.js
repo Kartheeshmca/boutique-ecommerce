@@ -78,7 +78,9 @@ export const createProduct = async (req, res) => {
       name,
       description,
       images: images || [],
-      status: status || "active",
+      status: ["Available", "Out of Stock", "Discontinued"].includes(status)
+        ? status
+        : "Available",
       variants: variants || [],
     });
 
@@ -87,38 +89,45 @@ export const createProduct = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-// ------------------- Public Products -------------------
 export const getAllProducts = async (req, res) => {
   try {
     const {
       search,
       page = 1,
       limit = 10,
-      sortBy = "createdAt",
-      order = "desc"
+      sortBy = "createdAt", // default sort field
+      order = "desc" // default order
     } = req.query;
 
     const skip = (page - 1) * limit;
+    let query = {};
 
-    // Default: users and guests see only active products
-    let query = { status: "active" };
-
-    // If logged in and role is admin or superadmin → show all products
-    if (req.user && ["admin", "super admin"].includes(req.user.role.toLowerCase())) {
-      query = {}; // override to show all
+    // Users see only active products
+     if (req.user && req.user.role.toLowerCase() === "user") {
+      query.status = "Available";
     }
+    
+    
 
     // Search filter
     if (search) {
       const regex = { $regex: search, $options: "i" };
-      query.$or = [
-        { name: regex },
-        { description: regex },
-        { "variants.sku": regex },
-        { "variants.color": regex },
-        { "variants.size": regex },
+      query.$and = [
+        query,
+        {
+          $or: [
+            { name: regex },
+            { description: regex },
+            { "variants.sku": regex },
+            { "variants.color": regex },
+            { "variants.size": regex },
+            { "variants.price": isNaN(search) ? -1 : Number(search) }
+          ]
+        }
       ];
-      if (!isNaN(search)) query.$or.push({ "variants.price": Number(search) });
+      if (!isNaN(search)) {
+        query.$or.push({ "variants.price": Number(search) });
+  }
     }
 
     // Sorting
@@ -126,8 +135,8 @@ export const getAllProducts = async (req, res) => {
     const sortQuery = {};
     sortQuery[sortBy] = sortOrder;
 
-    // Fetch data
     const total = await Product.countDocuments(query);
+
     const products = await Product.find(query)
       .populate("category", "name")
       .sort(sortQuery)
@@ -144,13 +153,12 @@ export const getAllProducts = async (req, res) => {
       total,
       page: Number(page),
       pages: Math.ceil(total / limit),
-      data: products,
+      data: products
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
 
 // Get product by ID with role-based access
 export const getProductById = async (req, res) => {
@@ -162,10 +170,11 @@ export const getProductById = async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found" });
     }
 
-    // Users can only see active products
-    if (req.user.role.toLowerCase() === "user" && product.status !== "active") {
-      return res.status(403).json({ success: false, message: "Product is inactive" });
+    // Users can only see Available products
+    if (req.user.role.toLowerCase() === "user" && product.status !== "Available") {
+      return res.status(403).json({ success: false, message: "Product is not available" });
     }
+
 
     res.json({ success: true, data: product });
   } catch (error) {
@@ -194,7 +203,11 @@ export const updateProduct = async (req, res) => {
           return res.status(400).json({ success: false, message: `SKU ${v.sku} already exists` });
       }
     }
+     const updateData = { category, name, description, images, variants };
 
+    if (status && ["Available", "Out of Stock", "Discontinued"].includes(status)) {
+      updateData.status = status;
+    }
     const product = await Product.findByIdAndUpdate(
       req.params.id,
       { category, name, description, images, status, variants },
@@ -235,6 +248,10 @@ export const decreaseStock = async (req, res) => {
       return res.status(400).json({ success: false, message: `Only ${variant.stock} items left in stock` });
 
     variant.stock -= quantity;
+
+     const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
+    product.status = totalStock === 0 ? "Out of Stock" : "Available";
+
     await product.save();
 
     res.json({ success: true, message: `Stock decreased by ${quantity}`, data: product });
@@ -255,6 +272,8 @@ export const increaseStock = async (req, res) => {
     if (!variant) return res.status(404).json({ success: false, message: "Variant not found" });
 
     variant.stock += quantity;
+      const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
+    product.status = totalStock === 0 ? "Out of Stock" : "Available";
     await product.save();
 
     res.json({ success: true, message: `Stock increased by ${quantity}`, data: product });

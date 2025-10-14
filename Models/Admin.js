@@ -20,7 +20,14 @@ const adminSchema = new mongoose.Schema(
         type: String, 
         enum: ["super admin", "admin"], 
         default: "admin" },
+
+    status:{
+    type: String,
+    enum: ["Active", "Inactive"],
+    default: "Active",
   },
+  },
+  
   { timestamps: true, versionKey: false }
 );
 

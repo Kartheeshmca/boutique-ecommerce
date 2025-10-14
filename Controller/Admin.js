@@ -44,6 +44,10 @@ export const loginAdmin = async (req, res) => {
     // Compare password
     const isMatch = await bcrypt.compare(password, admin.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid email or password" });
+    
+    if (admin.status === "Inactive") {
+       return res.status(403).json({ message: "Your account is inactive. Please contact Super Admin." });
+    }
 
     // Generate token
     const token = generateToken(admin._id, admin.role);
@@ -54,6 +58,7 @@ export const loginAdmin = async (req, res) => {
       role: admin.role,
       name: admin.name,
       email: admin.email,
+      status: admin.status,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -136,19 +141,24 @@ export const createAdmin = async (req, res) => {
 };
 
 // ---------------- Get All Admins (with Pagination + Search) ----------------
+// ---------------- Get All Admins (Exclude Super Admin) ----------------
 export const getAdmins = async (req, res) => {
   try {
-    let { page = 1, limit = 10, search = "" } = req.query;
+    let { page = 1, limit = 10, search = "" ,status} = req.query;
     page = parseInt(page);
     limit = parseInt(limit);
 
+    // Only find users with role 'admin' (not super admin)
     const query = {
+      role: "admin",
       $or: [
         { name: { $regex: search, $options: "i" } },
         { email: { $regex: search, $options: "i" } },
       ],
     };
-
+     if (status && ["Active", "Inactive"].includes(status)) {
+      query.status = status;
+    }
     const total = await Admin.countDocuments(query);
     const admins = await Admin.find(query)
       .select("-password")
@@ -167,6 +177,7 @@ export const getAdmins = async (req, res) => {
   }
 };
 
+
 // ---------------- Get Admin by ID ----------------
 export const getAdminById = async (req, res) => {
   try {
@@ -181,7 +192,7 @@ export const getAdminById = async (req, res) => {
 // ---------------- Update Admin (Super Admin only) ----------------
 export const updateAdmin = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, status } = req.body;
 
     const admin = await Admin.findById(req.params.id);
     if (!admin) return res.status(404).json({ message: "Admin not found" });
@@ -201,6 +212,10 @@ export const updateAdmin = async (req, res) => {
       admin.password = await bcrypt.hash(password, 10);
     }
     if (role) admin.role = role;
+    // ✅ Super Admin can activate or deactivate admin
+    if (status && ["Active", "Inactive"].includes(status)) {
+      admin.status = status;
+    }
 
     await admin.save();
     res.status(200).json({ message: "Admin updated successfully" });
@@ -210,6 +225,7 @@ export const updateAdmin = async (req, res) => {
 };
 
 // ---------------- Delete Admin (Super Admin only) ----------------
+// ---------------- Delete Admin (Super Admin only) ----------------
 export const deleteAdmin = async (req, res) => {
   try {
     if (req.user.id === req.params.id) {
@@ -218,10 +234,14 @@ export const deleteAdmin = async (req, res) => {
 
     const admin = await Admin.findById(req.params.id);
     if (!admin) return res.status(404).json({ message: "Admin not found" });
-       
-    await Admin.deleteOne({ _id: req.params.id });
-    res.status(200).json({ message: "Admin deleted successfully" });
+
+    // Instead of deleting, mark as inactive
+    admin.status = "Inactive";
+    await admin.save();
+
+    res.status(200).json({ message: "Admin marked as Inactive successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+

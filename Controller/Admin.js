@@ -144,9 +144,7 @@ export const createAdmin = async (req, res) => {
 // ---------------- Get All Admins (Exclude Super Admin) ----------------
 export const getAdmins = async (req, res) => {
   try {
-    let { page = 1, limit = 10, search = "" ,status} = req.query;
-    page = parseInt(page);
-    limit = parseInt(limit);
+    let { page, limit, search = "", status } = req.query;
 
     // Only find users with role 'admin' (not super admin)
     const query = {
@@ -156,10 +154,25 @@ export const getAdmins = async (req, res) => {
         { email: { $regex: search, $options: "i" } },
       ],
     };
-     if (status && ["Active", "Inactive"].includes(status)) {
+    if (status && ["Active", "Inactive"].includes(status)) {
       query.status = status;
     }
+
     const total = await Admin.countDocuments(query);
+
+    // If limit is not provided, return all admins
+    if (!limit) {
+      const admins = await Admin.find(query).select("-password");
+      return res.status(200).json({
+        total,
+        admins,
+      });
+    }
+
+    // If limit is provided, do pagination
+    page = parseInt(page) || 1;
+    limit = parseInt(limit) || 10;
+
     const admins = await Admin.find(query)
       .select("-password")
       .skip((page - 1) * limit)
@@ -176,6 +189,7 @@ export const getAdmins = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 
 // ---------------- Get Admin by ID ----------------

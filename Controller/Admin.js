@@ -10,7 +10,7 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // JWT Token generator
 const generateToken = (id, role) => {
-  return jwt.sign({ id, role }, process.env.JWT_SECRET, { expiresIn: "1m" });
+  return jwt.sign({ id, role }, process.env.JWT_SECRET, { expiresIn: "5m" });
 };
 
 // ---------------- Admin Login ----------------
@@ -258,5 +258,6 @@ export const deleteAdmin = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 

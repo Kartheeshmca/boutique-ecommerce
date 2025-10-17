@@ -1,87 +1,89 @@
 import Carousel from "../Models/Carousel.js";
-import multer from "multer";
-import path from "path";
 import fs from "fs";
+import path from "path";
 
-// Reuse multer setup from Product controller
-export const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = "uploads/carousel";
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    cb(null, uniqueName);
-  },
-});
-
-export const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|webp/;
-  const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimeType = allowedTypes.test(file.mimetype);
-  if (extName && mimeType) cb(null, true);
-  else cb(new Error("Only images are allowed (jpeg, jpg, png, webp)"));
-};
-
-export const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB limit
-});
-
-// Upload carousel image
-export const uploadCarouselImage = async (req, res) => {
+/**
+ * ✅ Upload Carousel Images (Admin only)
+ * - Upload multiple images to local storage
+ * - Store file URLs in DB
+ */
+export const uploadCarouselImages = async (req, res) => {
   try {
-    if (!req.file)
-      return res.status(400).json({ success: false, message: "No file uploaded" });
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: "No images uploaded" });
+    }
 
-    const imageUrl = `${req.protocol}://${req.get("host")}/uploads/carousel/${req.file.filename}`;
+    const imageUrls = req.files.map(
+      (file) => `${process.env.BASE_URL || "http://localhost:3001"}/${file.path.replace(/\\/g, "/")}`
+    );
 
-    res.status(200).json({
-      success: true,
-      message: "Image uploaded successfully",
-      data: { imageUrl },
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Get carousel images
-export const getCarousel = async (req, res) => {
-  try {
+    // Find existing carousel (we keep only one document)
     let carousel = await Carousel.findOne();
+
     if (!carousel) {
-      // Create default if not exists
-      carousel = await Carousel.create({ images: [] });
-    }
-    res.json({ success: true, data: carousel });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Update carousel images
-export const updateCarousel = async (req, res) => {
-  try {
-    const { images } = req.body;
-
-    if (!Array.isArray(images)) {
-      return res.status(400).json({ success: false, message: "Images must be an array" });
+      // create new carousel
+      carousel = new Carousel({ images: imageUrls });
+    } else {
+      // append new images
+      carousel.images.push(...imageUrls);
     }
 
-    let carousel = await Carousel.findOne();
-    if (!carousel) {
-      carousel = new Carousel();
-    }
-
-    carousel.images = images;
     await carousel.save();
 
-    res.json({ success: true, message: "Carousel updated successfully", data: carousel });
+    return res.status(201).json({
+      message: "Images uploaded successfully",
+      data: carousel,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * ✅ Get All Carousel Images (Public)
+ */
+export const getCarouselImages = async (req, res) => {
+  try {
+    const carousel = await Carousel.findOne();
+    if (!carousel || carousel.images.length === 0) {
+      return res.status(404).json({ message: "No images found" });
+    }
+    res.status(200).json({ data: carousel.images });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * ✅ Delete a Carousel Image (Admin only)
+ * - Removes from DB and deletes from folder
+ */
+export const deleteCarouselImage = async (req, res) => {
+  try {
+    const { imageUrl } = req.body;
+    if (!imageUrl) {
+      return res.status(400).json({ message: "Image URL is required" });
+    }
+
+    const carousel = await Carousel.findOne();
+    if (!carousel) {
+      return res.status(404).json({ message: "Carousel not found" });
+    }
+
+    // Remove from DB
+    carousel.images = carousel.images.filter((img) => img !== imageUrl);
+    await carousel.save();
+
+    // Delete local file if exists
+    const filePath = path.join(
+      process.cwd(),
+      imageUrl.replace(`${process.env.BASE_URL || "http://localhost:3001"}/`, "")
+    );
+
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+    res.status(200).json({ message: "Image deleted successfully", data: carousel });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };

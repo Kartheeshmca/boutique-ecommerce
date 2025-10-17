@@ -5,7 +5,7 @@ import {
   uploadCarouselImages,
   getCarouselImages,
   deleteCarouselImage,
-} from "../Controllers/CarouselController.js";
+} from "../Controller/Carousel.js";
 
 const router = express.Router();
 

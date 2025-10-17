@@ -1,21 +1,32 @@
 import express from "express";
-import {
-  getCarousel,
-  updateCarousel,
-  uploadCarouselImage,
-  upload,
-} from "../Controller/Carousel.js";
+import { upload } from "../Utils/upload.js";
 import { Auth, authorizeRoles } from "../Middleware/Auth.js";
-
+import {
+  uploadCarouselImages,
+  getCarouselImages,
+  deleteCarouselImage,
+} from "../Controllers/CarouselController.js";
 
 const router = express.Router();
-// Get carousel images
-router.get("/", Auth, authorizeRoles("admin", "super admin"),getCarousel);
 
-// Update carousel images
-router.put("/update",Auth, authorizeRoles("admin", "super admin"), updateCarousel);
+// ✅ Admin uploads carousel images
+router.post(
+  "/upload",
+  Auth,
+  authorizeRoles("super admin","admin"),
+  upload.array("images", 50),
+  uploadCarouselImages
+);
 
-// Upload carousel image
-router.post("/upload",Auth, authorizeRoles("admin", "super admin"), upload.single("file"), uploadCarouselImage);
+// ✅ Public fetch
+router.get("/all", getCarouselImages);
+
+// ✅ Admin deletes image
+router.delete(
+  "/delete",
+  Auth,
+  authorizeRoles("super admin","admin"),
+  deleteCarouselImage
+);
 
 export default router;

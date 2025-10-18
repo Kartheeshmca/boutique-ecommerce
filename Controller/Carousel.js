@@ -1,10 +1,8 @@
 import Carousel from "../Models/Carousel.js";
-import fs from "fs";
-import path from "path";
 
 /**
  * ✅ Upload Carousel Images (Admin only)
- * - Upload multiple images to local storage
+ * - Upload multiple images to Cloudinary
  * - Store file URLs in DB
  */
 export const uploadCarouselImages = async (req, res) => {
@@ -13,25 +11,21 @@ export const uploadCarouselImages = async (req, res) => {
       return res.status(400).json({ message: "No images uploaded" });
     }
 
-    const imageUrls = req.files.map(
-      (file) => `${process.env.BASE_URL || "http://localhost:3001"}/${file.path.replace(/\\/g, "/")}`
-    );
+    // Cloudinary automatically provides URLs in req.files[].path
+    const imageUrls = req.files.map((file) => file.path);
 
-    // Find existing carousel (we keep only one document)
     let carousel = await Carousel.findOne();
 
     if (!carousel) {
-      // create new carousel
       carousel = new Carousel({ images: imageUrls });
     } else {
-      // append new images
       carousel.images.push(...imageUrls);
     }
 
     await carousel.save();
 
     return res.status(201).json({
-      message: "Images uploaded successfully",
+      message: "Images uploaded successfully to Cloudinary",
       data: carousel,
     });
   } catch (error) {
@@ -56,8 +50,12 @@ export const getCarouselImages = async (req, res) => {
 
 /**
  * ✅ Delete a Carousel Image (Admin only)
- * - Removes from DB and deletes from folder
+ * - Removes from DB
+ * - (Optional) Delete from Cloudinary using public_id
  */
+import { v2 as cloudinary } from "cloudinary";
+import url from "url";
+
 export const deleteCarouselImage = async (req, res) => {
   try {
     const { imageUrl } = req.body;
@@ -74,13 +72,12 @@ export const deleteCarouselImage = async (req, res) => {
     carousel.images = carousel.images.filter((img) => img !== imageUrl);
     await carousel.save();
 
-    // Delete local file if exists
-    const filePath = path.join(
-      process.cwd(),
-      imageUrl.replace(`${process.env.BASE_URL || "http://localhost:3001"}/`, "")
-    );
-
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    // Extract public_id from Cloudinary URL and delete
+    const parsedUrl = url.parse(imageUrl);
+    const parts = parsedUrl.pathname.split("/");
+    const fileName = parts.pop();
+    const publicId = "boutique/carousel/" + fileName.split(".")[0];
+    await cloudinary.uploader.destroy(publicId);
 
     res.status(200).json({ message: "Image deleted successfully", data: carousel });
   } catch (error) {

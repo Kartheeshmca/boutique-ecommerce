@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../Models/User.js";
 import { sendEmail } from "../Utils/sendemail.js";
+import { v2 as cloudinary } from "cloudinary"; // ✅ Add this line
 import fs from "fs";
 import path from "path";
 
@@ -340,19 +341,24 @@ export const deleteUserProfile = async (req, res) => {
 // ---------------- Upload Profile Image ----------------
 export const uploadProfileImage = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: "No file uploaded" });
-    }
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Delete old image if exists
-    if (user.profileImage && fs.existsSync(user.profileImage)) {
-      fs.unlinkSync(user.profileImage);
+    // Delete old image from Cloudinary if exists
+    if (user.profileImagePublicId) {
+      await cloudinary.uploader.destroy(user.profileImagePublicId);
     }
 
-    user.profileImage = req.file.path;
+    // Upload new image to Cloudinary
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: "boutique/profile",
+      transformation: [{ quality: "auto", fetch_format: "auto" }],
+    });
+
+    user.profileImage = result.secure_url;
+    user.profileImagePublicId = result.public_id;
     await user.save();
 
     res.json({ message: "Profile image uploaded successfully", profileImage: user.profileImage });
@@ -360,8 +366,6 @@ export const uploadProfileImage = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
-// ---------------- Get Profile Image ----------------
 export const getProfileImage = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
@@ -369,27 +373,27 @@ export const getProfileImage = async (req, res) => {
       return res.status(404).json({ message: "Profile image not found" });
     }
 
-    res.sendFile(path.resolve(user.profileImage));
+    // Just return the Cloudinary URL
+    res.json({ profileImage: user.profileImage });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
-
-// ---------------- Delete Profile Image ----------------
 export const deleteProfileImage = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (!user.profileImage) {
+    if (!user.profileImagePublicId) {
       return res.status(400).json({ message: "No profile image to delete" });
     }
 
-    if (fs.existsSync(user.profileImage)) {
-      fs.unlinkSync(user.profileImage);
-    }
+    // Delete from Cloudinary
+    await cloudinary.uploader.destroy(user.profileImagePublicId);
 
+    // Clear user fields
     user.profileImage = "";
+    user.profileImagePublicId = "";
     await user.save();
 
     res.json({ message: "Profile image deleted successfully" });

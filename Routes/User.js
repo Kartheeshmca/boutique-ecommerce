@@ -15,8 +15,7 @@ import {
 } from "../Controller/User.js";
 
 import { Auth, authorizeRoles } from "../Middleware/Auth.js";
-import { upload } from  "../Utils/upload.js";
-
+import { upload } from "../Utils/cloud.js";
 
 const router = express.Router();
 
@@ -27,24 +26,17 @@ router.post("/forgot-password", forgotPassword);
 router.post("/reset-password/:token", resetPassword);
 
 // ---------- Admin Routes ----------
-// GET /admin/users?search=abc&role=user&page=1&limit=10
 router.get("/all", Auth, authorizeRoles("admin", "super admin"), getAllUsers);
 router.get("/byId/:id", Auth, authorizeRoles("admin", "super admin"), getUserById);
 
-
-
 // ---------- Normal User Routes ----------
-router.get("/me", Auth, getUserProfile);            // view own profile
-router.put("/update/:id", Auth, updateUserProfile); // update any user by id (if allowed)
-router.delete("/delete/:id", Auth, deleteUserProfile); // delete any user by id (if allowed)
+router.get("/me", Auth, getUserProfile); // view own profile
+router.put("/update/:id", Auth, updateUserProfile); // update user info (name, phone, email, etc.)
+router.delete("/delete/:id", Auth, deleteUserProfile); // delete user profile
 
-// Upload profile image
-router.post("/upload-profile", Auth, upload.single("profileImage"), uploadProfileImage);
-
-// Get profile image by userId
-router.get("/profile-image/:id", getProfileImage);
-
-
-router.delete("/delete-profile-image", Auth, deleteProfileImage);
+// ---------- Profile Image Routes ----------
+router.post("/upload-profile", Auth, upload.single("profileImage"), uploadProfileImage); // upload image
+router.get("/profile-image/:id", getProfileImage); // get image URL by userId
+router.delete("/delete-profile-image", Auth, deleteProfileImage); // delete profile image
 
 export default router;

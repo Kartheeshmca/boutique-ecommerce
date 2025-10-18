@@ -35,11 +35,17 @@ export const getOrderById = async (req, res) => {
       .populate("payment");
 
     if (!order) return res.status(404).json({ message: "Order not found" });
-    if (!req.user || !req.user._id) return res.status(401).json({ message: "Authorization required" });
+
+    // ✅ Use req.user.id instead of req.user._id
+    if (!req.user || !req.user.id)
+      return res.status(401).json({ message: "Authorization required" });
 
     if (req.user.role === "user") {
-      if (!order.user || !order.user._id) return res.status(400).json({ message: "Order has no user assigned" });
-      if (order.user._id?.toString() !== req.user._id?.toString()) return res.status(403).json({ message: "Access denied" });
+      if (!order.user || !order.user._id)
+        return res.status(400).json({ message: "Order has no user assigned" });
+
+      if (order.user._id.toString() !== req.user.id.toString())
+        return res.status(403).json({ message: "Access denied" });
     }
 
     res.json({ success: true, order });
@@ -48,6 +54,7 @@ export const getOrderById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // ✅ Update Order (Admin)
 export const updateOrder = async (req, res) => {
@@ -88,9 +95,14 @@ export const deleteOrder = async (req, res) => {
 export const getAllOrders = async (req, res) => {
   try {
     const { page, limit, search, status, paymentStatus, startDate, endDate } = req.query;
-    if (!req.user || !req.user._id) return res.status(401).json({ message: "Authorization required" });
 
+    // ✅ Check authorization
+    if (!req.user || !req.user.id)
+      return res.status(401).json({ message: "Authorization required" });
+
+    // ✅ Build query
     let query = {};
+
     if (search) {
       query.$or = [];
       if (mongoose.Types.ObjectId.isValid(search)) query.$or.push({ _id: search });
@@ -98,11 +110,19 @@ export const getAllOrders = async (req, res) => {
       query.$or.push({ "user.name": { $regex: search, $options: "i" } });
       query.$or.push({ "user.email": { $regex: search, $options: "i" } });
     }
+
     if (status) query.status = status;
-    if (req.user.role === "user") query.user = req.user._id;
+
+    // ✅ Restrict users to their own orders
+    if (req.user.role === "user") query.user = req.user.id;
+
     if (startDate || endDate) query.createdAt = {};
     if (startDate) query.createdAt.$gte = new Date(startDate);
     if (endDate) query.createdAt.$lte = new Date(endDate);
+
+    // ✅ Pagination
+    const currentPage = parseInt(page) || 1;
+    const perPage = parseInt(limit) || 0; // 0 means no limit, return all
 
     let ordersQuery = Order.find(query)
       .populate("user", "name email")
@@ -112,22 +132,31 @@ export const getAllOrders = async (req, res) => {
       .populate("payment")
       .sort({ createdAt: -1 });
 
-    let currentPage = 1, perPage = 0;
-    if (limit) {
-      currentPage = parseInt(page) || 1;
-      perPage = parseInt(limit);
+    if (perPage > 0) {
       ordersQuery = ordersQuery.skip((currentPage - 1) * perPage).limit(perPage);
     }
 
     let orders = await ordersQuery;
-    if (paymentStatus) orders = orders.filter(o => o.payment?.status === paymentStatus);
+
+    if (paymentStatus) {
+      orders = orders.filter(o => o.payment?.status === paymentStatus);
+    }
 
     const total = await Order.countDocuments(query);
-    res.json({ success: true, page: limit ? currentPage : 1, limit: limit ? perPage : total, total, totalPages: limit ? Math.ceil(total / perPage) : 1, orders });
+
+    res.json({
+      success: true,
+      page: currentPage,
+      limit: perPage > 0 ? perPage : total,
+      total,
+      totalPages: perPage > 0 ? Math.ceil(total / perPage) : 1,
+      orders
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // ✅ Confirm Payment
 export const confirmOrderPayment = async (orderId) => {

@@ -1,5 +1,5 @@
 import express from "express";
-import { upload } from "../Utils/upload.js";
+import { upload } from "../Utils/cloud.js";
 import { Auth, authorizeRoles } from "../Middleware/Auth.js";
 import {
   uploadCarouselImages,

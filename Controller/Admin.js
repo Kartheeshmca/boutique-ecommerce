@@ -1,9 +1,6 @@
 import Admin from "../Models/Admin.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-
-
-
 // Password & email regex
 const passwordRegex = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d).{8,}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -204,6 +201,7 @@ export const getAdminById = async (req, res) => {
 };
 
 // ---------------- Update Admin (Super Admin only) ----------------
+// ---------------- Update Admin (Super Admin + Admin) ----------------
 export const updateAdmin = async (req, res) => {
   try {
     const { name, email, password, role, status } = req.body;
@@ -211,13 +209,20 @@ export const updateAdmin = async (req, res) => {
     const admin = await Admin.findById(req.params.id);
     if (!admin) return res.status(404).json({ message: "Admin not found" });
 
+    // Update name
     if (name) admin.name = name.trim();
+
+    // Update email with validation
     if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email))
         return res.status(400).json({ message: "Invalid email format" });
       admin.email = email.trim().toLowerCase();
     }
+
+    // Update password with validation
     if (password) {
+      const passwordRegex = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d).{8,}$/;
       if (!passwordRegex.test(password))
         return res.status(400).json({
           message:
@@ -225,14 +230,28 @@ export const updateAdmin = async (req, res) => {
         });
       admin.password = await bcrypt.hash(password, 10);
     }
-    if (role) admin.role = role;
-    // ✅ Super Admin can activate or deactivate admin
+
+    // Update role (allow changing Super Admin role if needed)
+    if (role && ["admin", "super admin"].includes(role.toLowerCase())) {
+      admin.role = role.toLowerCase();
+    }
+
+    // Update status
     if (status && ["Active", "Inactive"].includes(status)) {
       admin.status = status;
     }
 
     await admin.save();
-    res.status(200).json({ message: "Admin updated successfully" });
+    res.status(200).json({
+      message: "Admin updated successfully",
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        status: admin.status,
+      },
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -258,8 +277,4 @@ export const deleteAdmin = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
-
-
-
 

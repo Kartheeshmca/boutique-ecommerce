@@ -17,7 +17,7 @@ router.post("/create", Auth, authorizeRoles("admin", "super admin"), createCateg
 router.get("/all", getAllCategories);
 
 // Get category by ID (All roles)
-router.get("/byId/:id", Auth, authorizeRoles("user", "admin", "super admin"), getCategoryById);
+router.get("/byId/:id", getCategoryById);
 
 // Update category (Admin & Super Admin)
 router.put("/update/:id", Auth, authorizeRoles("admin", "super admin"), updateCategory);
@@ -26,4 +26,5 @@ router.put("/update/:id", Auth, authorizeRoles("admin", "super admin"), updateCa
 router.delete("/delete/:id", Auth, authorizeRoles("super admin"), deleteCategory);
 
 export default router;
+
 

@@ -4,16 +4,18 @@ import Payment from "../Models/Payment.js";
 import mongoose from "mongoose";
 import { sendEmail } from "../Utils/sendemail.js";
 
-
-// ✅ Create Order (without payment logic)
+// ✅ Create Order
 export const createOrder = async (req, res) => {
   try {
     const { user, address, total_amount, notes } = req.body;
 
-    // 1️⃣ Create order
-    const order = await Order.create({ user, address, total_amount, notes });
+    if (!user || !address || !total_amount) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
 
+    const order = await Order.create({ user, address, total_amount, notes });
     res.status(201).json({
+      success: true,
       message: "Order created successfully. Use payment API to complete payment.",
       order,
     });
@@ -26,75 +28,69 @@ export const createOrder = async (req, res) => {
 export const getOrderById = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate("user")
+      .populate("user", "name email role")
       .populate("address")
-      .populate({ path: "orderItems", populate: { path: "product" } })
+      .populate({ path: "orderItems", populate: { path: "product", select: "name price" } })
       .populate("offer")
       .populate("payment");
 
     if (!order) return res.status(404).json({ message: "Order not found" });
+    if (!req.user || !req.user._id) return res.status(401).json({ message: "Authorization required" });
 
-    // Restrict non-admin users to their own orders
-    if (req.user.role === "user" && order.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Access denied" });
+    if (req.user.role === "user") {
+      if (!order.user || !order.user._id) return res.status(400).json({ message: "Order has no user assigned" });
+      if (order.user._id?.toString() !== req.user._id?.toString()) return res.status(403).json({ message: "Access denied" });
     }
 
-    res.json(order);
+    res.json({ success: true, order });
   } catch (error) {
+    console.error("Get Order By ID Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 };
 
-// ✅ Update Order
+// ✅ Update Order (Admin)
 export const updateOrder = async (req, res) => {
   try {
-    const order = await Order.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true
-    });
+    if (!req.user || req.user.role !== "admin") return res.status(403).json({ message: "Admin access required" });
 
+    const order = await Order.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!order) return res.status(404).json({ message: "Order not found" });
-    res.json({ message: "Order updated", order });
+
+    res.json({ success: true, message: "Order updated", order });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// ✅ Delete Order (admin only)
+// ✅ Delete Order (Admin)
 export const deleteOrder = async (req, res) => {
   try {
+    if (!req.user || req.user.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Delete all linked order items
     await OrderItem.deleteMany({ order: order._id });
+    if (order.payment) await Payment.findByIdAndUpdate(order.payment, { status: "cancelled" });
 
-    // Cancel linked payment (if exists)
-    if (order.payment) {
-      await Payment.findByIdAndUpdate(order.payment, { status: "cancelled" });
-    }
-
-    // Mark order as cancelled
     order.status = "cancelled";
     await order.save();
-
-    // Delete order
     await Order.findByIdAndDelete(order._id);
 
-    res.json({ message: "Order and related items deleted" });
+    res.json({ success: true, message: "Order and related items deleted" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// ✅ Get All Orders (with filters, pagination, search)
+// ✅ Get All Orders
 export const getAllOrders = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search, status, paymentStatus, startDate, endDate } = req.query;
+    const { page, limit, search, status, paymentStatus, startDate, endDate } = req.query;
+    if (!req.user || !req.user._id) return res.status(401).json({ message: "Authorization required" });
 
     let query = {};
-
-    // 🔹 Search by Order ID / User ID / User fields
     if (search) {
       query.$or = [];
       if (mongoose.Types.ObjectId.isValid(search)) query.$or.push({ _id: search });
@@ -102,66 +98,48 @@ export const getAllOrders = async (req, res) => {
       query.$or.push({ "user.name": { $regex: search, $options: "i" } });
       query.$or.push({ "user.email": { $regex: search, $options: "i" } });
     }
-
-    // 🔹 Filter by order status
     if (status) query.status = status;
-
-    // 🔹 Restrict normal users to their own orders
     if (req.user.role === "user") query.user = req.user._id;
+    if (startDate || endDate) query.createdAt = {};
+    if (startDate) query.createdAt.$gte = new Date(startDate);
+    if (endDate) query.createdAt.$lte = new Date(endDate);
 
-    // 🔹 Date filter
-    if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) query.createdAt.$gte = new Date(startDate);
-      if (endDate) query.createdAt.$lte = new Date(endDate);
-    }
-
-    // Fetch orders
-    let orders = await Order.find(query)
+    let ordersQuery = Order.find(query)
       .populate("user", "name email")
       .populate("address")
       .populate({ path: "orderItems", populate: { path: "product" } })
       .populate("offer")
       .populate("payment")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .sort({ createdAt: -1 });
 
-    // Filter by payment status after populate
-    if (paymentStatus) {
-      orders = orders.filter(o => o.payment && o.payment.status === paymentStatus);
+    let currentPage = 1, perPage = 0;
+    if (limit) {
+      currentPage = parseInt(page) || 1;
+      perPage = parseInt(limit);
+      ordersQuery = ordersQuery.skip((currentPage - 1) * perPage).limit(perPage);
     }
 
-    const total = await Order.countDocuments(query);
+    let orders = await ordersQuery;
+    if (paymentStatus) orders = orders.filter(o => o.payment?.status === paymentStatus);
 
-    res.json({
-      success: true,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total,
-      totalPages: Math.ceil(total / limit),
-      orders
-    });
+    const total = await Order.countDocuments(query);
+    res.json({ success: true, page: limit ? currentPage : 1, limit: limit ? perPage : total, total, totalPages: limit ? Math.ceil(total / perPage) : 1, orders });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
-// ✅ Confirm order payment and send email
+
+// ✅ Confirm Payment
 export const confirmOrderPayment = async (orderId) => {
   try {
-    const order = await Order.findById(orderId).populate("user");
+    const order = await Order.findById(orderId).populate("user", "name email");
     if (!order) return { success: false, message: "Order not found" };
 
-    // Update order status
     order.status = "confirmed";
     await order.save();
 
-    // Send email if user email exists
-    if (order.user && order.user.email) {
-      const subject = `Your Order #${order._id} is Confirmed`;
-      const text = `Hi ${order.user.name},\n\nYour payment has been successfully received and your order is confirmed.\n\nOrder ID: ${order._id}\nTotal Amount: ₹${order.total_amount}\n\nThank you for shopping with us!`;
-
-      await sendEmail(order.user.email, subject, text);
+    if (order.user?.email) {
+      await sendEmail(order.user.email, `Order #${order._id} Confirmed`, `Hi ${order.user.name}, your payment has been received. Order ID: ${order._id}, Total: ₹${order.total_amount}`);
     }
 
     return { success: true, message: "Order confirmed and email sent", order };
@@ -170,22 +148,18 @@ export const confirmOrderPayment = async (orderId) => {
     return { success: false, message: error.message };
   }
 };
-// ✅ Refund order payment and send email
+
+// ✅ Refund Payment
 export const refundOrderPayment = async (orderId, amount) => {
   try {
-    const order = await Order.findById(orderId).populate("user");
+    const order = await Order.findById(orderId).populate("user", "name email");
     if (!order) return { success: false, message: "Order not found" };
 
-    // Update order status
     order.status = "refunded";
     await order.save();
 
-    // Send email if user email exists
-    if (order.user && order.user.email) {
-      const subject = `Your Order #${order._id} has been Refunded`;
-      const text = `Hi ${order.user.name},\n\nYour payment for Order ID ${order._id} has been successfully refunded.\nRefund Amount: ₹${amount}\n\nWe hope to serve you again soon!`;
-
-      await sendEmail(order.user.email, subject, text);
+    if (order.user?.email) {
+      await sendEmail(order.user.email, `Order #${order._id} Refunded`, `Hi ${order.user.name}, your payment for Order ID ${order._id} has been refunded. Amount: ₹${amount}`);
     }
 
     return { success: true, message: "Order refunded and email sent", order };

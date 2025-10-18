@@ -10,7 +10,9 @@ const adminSchema = new mongoose.Schema(
         type: String,
         required: true, 
         unique: true, 
-        lowercase: true
+        lowercase: true,
+        trim: true, // 👈 ensures clean email input
+        match: [/\S+@\S+\.\S+/, "Please enter a valid email address"],
      },
     password: { 
         type: String,

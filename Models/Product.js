@@ -45,7 +45,8 @@ const productSchema = new mongoose.Schema(
     description: { 
       type: String, 
       trim: true, 
-      maxlength: [2000, "Description cannot exceed 2000 characters"] 
+      maxlength: [2000, "Description cannot exceed 2000 characters"] ,
+      default: null,
     },
     images: [
       {
@@ -61,8 +62,8 @@ const productSchema = new mongoose.Schema(
     ],
     status: { 
       type: String, 
-      enum: ["active", "inactive"],
-      default: "active" 
+      enum: [ "Available", "Out of Stock", "Discontinued" ],
+      default: "Available" 
     },
     variants: [variantSchema], // <-- Add this for multiple variants
   },

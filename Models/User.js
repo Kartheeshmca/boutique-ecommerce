@@ -49,6 +49,11 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin", "super admin"],
       default: "user",
     },
+    status:{
+    type: String,
+    enum: ["Active", "Inactive"],
+    default: "Active",
+  },
     isVerified: {
       type: Boolean,
       default: true,

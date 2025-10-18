@@ -194,15 +194,19 @@ export const getUserById = async (req, res) => {
 
 // ---------------- Get All Users ----------------
 // Get All Users with Pagination & Search
+
 export const getAllUsers = async (req, res) => {
   try {
-    const { search, role,status , page = 1, limit = 10 } = req.query; // default page 1, limit 10
+    let { search, role, status, page, limit } = req.query;
     const query = {};
-// Filter by status if provided
-if (status && ["Active", "Inactive"].includes(status)) {
-  query.status = status;
-}
 
+    // Filter by status if provided
+    if (status && ["Active", "Inactive"].includes(status)) {
+      query.status = status;
+    }
+
+    // Filter by role if provided
+    if (role) query.role = role;
 
     // Search by name, email, phone, role
     if (search) {
@@ -215,17 +219,21 @@ if (status && ["Active", "Inactive"].includes(status)) {
       ];
     }
 
-    // Filter by role
-    if (role) query.role = role;
+    let usersQuery = User.find(query).select("-password");
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const users = await User.find(query)
-      .select("-password")
-      .skip(skip)
-      .limit(parseInt(limit));
+    let currentPage = 1;
+    let perPage = 0;
 
+    // Apply pagination only if limit is provided
+    if (limit) {
+      currentPage = parseInt(page) || 1;
+      perPage = parseInt(limit);
+      const skip = (currentPage - 1) * perPage;
+      usersQuery = usersQuery.skip(skip).limit(perPage);
+    }
+
+    const users = await usersQuery;
     const total = await User.countDocuments(query);
-    const totalPages = Math.ceil(total / limit);
 
     if (!users.length) {
       return res.status(404).json({ success: false, message: "No users found" });
@@ -233,24 +241,16 @@ if (status && ["Active", "Inactive"].includes(status)) {
 
     res.json({
       success: true,
-      page: parseInt(page),
-      totalPages,
+      page: limit ? currentPage : 1,
+      limit: limit ? perPage : total,
       totalUsers: total,
+      totalPages: limit ? Math.ceil(total / perPage) : 1,
       users,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
-
-
-
-
-
-
-
-
-
 
 // ---------------- Update User ----------------
 

@@ -13,6 +13,7 @@ const categorySchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength:200,
+      default: null,
     },
     status: {
       type: String,

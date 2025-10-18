@@ -86,8 +86,13 @@ export const getUserAddresses = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const { search, page = 1, limit = 10 } = req.query;
-    const skip = (page - 1) * limit;
+    const { search, page, limit } = req.query;
+
+    // Only calculate skip if pagination is used
+    let skip = 0;
+    if (page && limit) {
+      skip = (Number(page) - 1) * Number(limit);
+    }
 
     const query = { user_id: userId };
     if (search) {
@@ -102,22 +107,28 @@ export const getUserAddresses = async (req, res) => {
     }
 
     const total = await Address.countDocuments(query);
-    const addresses = await Address.find(query)
-      .skip(skip)
-      .limit(Number(limit))
-      .lean();
+
+    let addressesQuery = Address.find(query).lean();
+
+    // Apply pagination only if limit is provided
+    if (limit) {
+      addressesQuery = addressesQuery.skip(skip).limit(Number(limit));
+    }
+
+    const addresses = await addressesQuery;
 
     res.json({
       success: true,
       total,
-      page: Number(page),
-      pages: Math.ceil(total / limit),
+      page: page ? Number(page) : 1,
+      pages: limit ? Math.ceil(total / limit) : 1,
       data: addresses,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // Update address
 export const updateAddress = async (req, res) => {

@@ -14,10 +14,10 @@ const router = express.Router();
 router.post("/create", Auth, authorizeRoles("admin", "super admin"), createCategory);
 
 // Get all categories (All roles)
-router.get("/all", getAllCategories);
+router.get("/all", Auth, authorizeRoles("user", "admin", "super admin"), getAllCategories);
 
 // Get category by ID (All roles)
-router.get("/byId/:id", getCategoryById);
+router.get("/byId/:id", Auth, authorizeRoles("user", "admin", "super admin"), getCategoryById);
 
 // Update category (Admin & Super Admin)
 router.put("/update/:id", Auth, authorizeRoles("admin", "super admin"), updateCategory);
@@ -26,5 +26,3 @@ router.put("/update/:id", Auth, authorizeRoles("admin", "super admin"), updateCa
 router.delete("/delete/:id", Auth, authorizeRoles("super admin"), deleteCategory);
 
 export default router;
-
-

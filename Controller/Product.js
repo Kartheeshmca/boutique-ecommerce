@@ -91,43 +91,28 @@ export const createProduct = async (req, res) => {
 };
 export const getAllProducts = async (req, res) => {
   try {
-    const {
-      search,
-      page = 1,
-      limit = 10,
-      sortBy = "createdAt", // default sort field
-      order = "desc" // default order
-    } = req.query;
+    let { search, page, limit, sortBy = "createdAt", order = "desc" } = req.query;
 
-    const skip = (page - 1) * limit;
     let query = {};
 
-    // Users see only active products
-     if (req.user && req.user.role.toLowerCase() === "user") {
+    // Users see only available products
+    if (req.user && req.user.role.toLowerCase() === "user") {
       query.status = "Available";
     }
-    
-    
 
     // Search filter
     if (search) {
       const regex = { $regex: search, $options: "i" };
-      query.$and = [
-        query,
-        {
-          $or: [
-            { name: regex },
-            { description: regex },
-            { "variants.sku": regex },
-            { "variants.color": regex },
-            { "variants.size": regex },
-            { "variants.price": isNaN(search) ? -1 : Number(search) }
-          ]
-        }
+      query.$or = [
+        { name: regex },
+        { description: regex },
+        { "variants.sku": regex },
+        { "variants.color": regex },
+        { "variants.size": regex }
       ];
       if (!isNaN(search)) {
         query.$or.push({ "variants.price": Number(search) });
-  }
+      }
     }
 
     // Sorting
@@ -135,14 +120,21 @@ export const getAllProducts = async (req, res) => {
     const sortQuery = {};
     sortQuery[sortBy] = sortOrder;
 
-    const total = await Product.countDocuments(query);
+    let productsQuery = Product.find(query).populate("category", "name").sort(sortQuery).lean();
 
-    const products = await Product.find(query)
-      .populate("category", "name")
-      .sort(sortQuery)
-      .skip(skip)
-      .limit(Number(limit))
-      .lean();
+    let currentPage = 1;
+    let perPage = 0;
+
+    // Apply pagination only if limit is provided
+    if (limit) {
+      currentPage = parseInt(page) || 1;
+      perPage = parseInt(limit);
+      const skip = (currentPage - 1) * perPage;
+      productsQuery = productsQuery.skip(skip).limit(perPage);
+    }
+
+    const products = await productsQuery;
+    const total = await Product.countDocuments(query);
 
     if (!products.length) {
       return res.status(404).json({ success: false, message: "No products found" });
@@ -151,8 +143,9 @@ export const getAllProducts = async (req, res) => {
     res.json({
       success: true,
       total,
-      page: Number(page),
-      pages: Math.ceil(total / limit),
+      page: limit ? currentPage : 1,
+      limit: limit ? perPage : total,
+      pages: limit ? Math.ceil(total / perPage) : 1,
       data: products
     });
   } catch (err) {

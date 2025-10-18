@@ -27,10 +27,7 @@ export const createCategory = async (req, res) => {
 // ---------------- Get All Categories with Search & Pagination ----------------
 export const getAllCategories = async (req, res) => {
   try {
-    let { page = 1, limit = 10, search = "", sortBy = "createdAt", order = "desc" } = req.query;
-    page = parseInt(page);
-    limit = parseInt(limit);
-    const skip = (page - 1) * limit;
+    let { page, limit, search = "", sortBy = "createdAt", order = "desc" } = req.query;
 
     const query = {};
 
@@ -46,16 +43,24 @@ export const getAllCategories = async (req, res) => {
     }
 
     const total = await Category.countDocuments(query);
-    const categories = await Category.find(query)
-      .skip(skip)
-      .limit(limit)
-      .sort({ [sortBy]: order === "desc" ? -1 : 1 });
+
+    let categoriesQuery = Category.find(query).sort({ [sortBy]: order === "desc" ? -1 : 1 });
+
+    // Apply pagination only if limit is provided
+    if (limit) {
+      page = Number(page) || 1;
+      limit = Number(limit);
+      const skip = (page - 1) * limit;
+      categoriesQuery = categoriesQuery.skip(skip).limit(limit);
+    }
+
+    const categories = await categoriesQuery;
 
     res.json({
       success: true,
       total,
-      page,
-      pages: Math.ceil(total / limit),
+      page: page ? Number(page) : 1,
+      pages: limit ? Math.ceil(total / limit) : 1,
       categories
     });
   } catch (error) {

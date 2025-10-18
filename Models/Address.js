@@ -10,18 +10,22 @@ const addressSchema = new mongoose.Schema(
     city: {
       type: String,
       trim: true,
+      default: null, // optional
     },
     state: {
       type: String,
       trim: true,
+      default: null, // optional
     },
     pincode: {
       type: String,
       trim: true,
+      default: null, // optional
     },
     country: {
       type: String,
       trim: true,
+      default: null, // optional
     },
     phone: {
       type: String,

@@ -44,7 +44,7 @@ router.post("/upload-profile", Auth, upload.single("profileImage"), uploadProfil
 // Get profile image by userId
 router.get("/profile-image/:id", getProfileImage);
 
-// Delete profile image
+
 router.delete("/delete-profile-image", Auth, deleteProfileImage);
 
 export default router;

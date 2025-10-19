@@ -1,60 +1,156 @@
-import Payment from "../Models/Payment.js";
 import Order from "../Models/Order.js";
-import razorpayInstance from "../Utils/razorpay.js"; // Razorpay SDK instance
-import crypto from "crypto";
-import { confirmOrderPayment, refundOrderPayment } from "./Order.js";
+import OrderItem from "../Models/Orderitem.js";
+import Payment from "../Models/Payment.js";
+import mongoose from "mongoose";
+import { sendEmail } from "../Utils/sendemail.js";
 
-// ✅ Create Razorpay Payment (linked to Order)
-
-
-
-
-// ✅ Create Razorpay Payment (linked to Order)
-export const createPayment = async (req, res) => {
+// ✅ Create Order
+export const createOrder = async (req, res) => {
   try {
-    const { orderId, method = "UPI" } = req.body;
+    const { user, address, total_amount, notes } = req.body;
 
-    // 1️⃣ Fetch the order
-    const order = await Order.findById(orderId).populate("payment");
+    if (!user || !address || !total_amount) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const order = await Order.create({ user, address, total_amount, notes });
+    res.status(201).json({
+      success: true,
+      message: "Order created successfully. Use payment API to complete payment.",
+      order,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Get Order by ID
+export const getOrderById = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id)
+      .populate("user", "name email role")
+      .populate("address")
+      .populate({ path: "orderItems", populate: { path: "product", select: "name price" } })
+      .populate("offer")
+      .populate("payment");
+
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // 2️⃣ Prevent duplicate successful payment
-    if (order.payment?.status === "paid") {
-      return res.status(400).json({ message: "Payment already completed for this order." });
+    // ✅ Use req.user.id instead of req.user._id
+    if (!req.user || !req.user.id)
+      return res.status(401).json({ message: "Authorization required" });
+
+    if (req.user.role === "user") {
+      if (!order.user || !order.user._id)
+        return res.status(400).json({ message: "Order has no user assigned" });
+
+      if (order.user._id.toString() !== req.user.id.toString())
+        return res.status(403).json({ message: "Access denied" });
     }
 
-    // 3️⃣ If previous payment failed or is pending, allow retry
-    if (order.payment && (order.payment.status === "failed" || order.payment.status === "created")) {
-      // Optionally, delete previous failed payment
-      await Payment.findByIdAndDelete(order.payment._id);
-    }
+    res.json({ success: true, order });
+  } catch (error) {
+    console.error("Get Order By ID Error:", error.message);
+    res.status(500).json({ message: error.message });
+  }
+};
 
-    // 4️⃣ Create Razorpay order
-    const razorpayOrder = await razorpayInstance.orders.create({
-      amount: order.total_amount * 100, // amount in paise
-      currency: "INR",
-      receipt: `order_rcpt_${order._id}`,
-      payment_capture: 1,
-    });
 
-    // 5️⃣ Save new payment in DB
-    const payment = await Payment.create({
-      order: order._id,
-      amount: order.total_amount,
-      currency: "INR",
-      method,
-      status: "created",
-      razorpayOrderId: razorpayOrder.id,
-    });
+// ✅ Update Order (Admin)
+export const updateOrder = async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== "admin") return res.status(403).json({ message: "Admin access required" });
 
-    // 6️⃣ Link payment to order
-    order.payment = payment._id;
+    const order = await Order.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    res.json({ success: true, message: "Order updated", order });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Delete Order (Admin)
+export const deleteOrder = async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    await OrderItem.deleteMany({ order: order._id });
+    if (order.payment) await Payment.findByIdAndUpdate(order.payment, { status: "cancelled" });
+
+    order.status = "cancelled";
     await order.save();
+    await Order.findByIdAndDelete(order._id);
 
-    res.status(201).json({
-      message: "Payment created. Complete payment to confirm order.",
-      payment,
-      razorpayOrder,
+    res.json({ success: true, message: "Order and related items deleted" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Get All Orders
+export const getAllOrders = async (req, res) => {
+  try {
+    const { page, limit, search, status, paymentStatus, startDate, endDate } = req.query;
+
+    // ✅ Check authorization
+    if (!req.user || !req.user.id)
+      return res.status(401).json({ message: "Authorization required" });
+
+    // ✅ Build query
+    let query = {};
+
+    if (search) {
+      query.$or = [];
+      if (mongoose.Types.ObjectId.isValid(search)) query.$or.push({ _id: search });
+      if (mongoose.Types.ObjectId.isValid(search)) query.$or.push({ user: search });
+      query.$or.push({ "user.name": { $regex: search, $options: "i" } });
+      query.$or.push({ "user.email": { $regex: search, $options: "i" } });
+    }
+
+    if (status) query.status = status;
+
+    // ✅ Restrict users to their own orders
+    if (req.user.role === "user") query.user = req.user.id;
+
+    if (startDate || endDate) query.createdAt = {};
+    if (startDate) query.createdAt.$gte = new Date(startDate);
+    if (endDate) query.createdAt.$lte = new Date(endDate);
+
+    // ✅ Pagination
+    const currentPage = parseInt(page) || 1;
+    const perPage = parseInt(limit) || 0; // 0 means no limit, return all
+
+    let ordersQuery = Order.find(query)
+      .populate("user", "name email")
+      .populate("address")
+      .populate({ path: "orderItems", populate: { path: "product" } })
+      .populate("offer")
+      .populate("payment")
+      .sort({ createdAt: -1 });
+
+    if (perPage > 0) {
+      ordersQuery = ordersQuery.skip((currentPage - 1) * perPage).limit(perPage);
+    }
+
+    let orders = await ordersQuery;
+
+    if (paymentStatus) {
+      orders = orders.filter(o => o.payment?.status === paymentStatus);
+    }
+
+    const total = await Order.countDocuments(query);
+
+    res.json({
+      success: true,
+      page: currentPage,
+      limit: perPage > 0 ? perPage : total,
+      total,
+      totalPages: perPage > 0 ? Math.ceil(total / perPage) : 1,
+      orders
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -62,186 +158,42 @@ export const createPayment = async (req, res) => {
 };
 
 
-// ✅ Verify Razorpay Payment
-export const verifyRazorpayPayment = async (req, res) => {
+// ✅ Confirm Payment
+export const confirmOrderPayment = async (orderId) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const order = await Order.findById(orderId).populate("user", "name email");
+    if (!order) return { success: false, message: "Order not found" };
 
-    // Verify signature
-    const generatedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest("hex");
+    order.status = "confirmed";
+    await order.save();
 
-    if (generatedSignature !== razorpay_signature)
-      return res.status(400).json({ message: "Invalid payment signature" });
-
-    // Update Payment status
-    const payment = await Payment.findOneAndUpdate(
-      { razorpayOrderId: razorpay_order_id },
-      { status: "paid", razorpayPaymentId: razorpay_payment_id },
-      { new: true }
-    ).populate("order");
-
-    if (!payment) return res.status(404).json({ message: "Payment not found" });
-
-    // ✅ Confirm order payment and send email
-    if (payment.order) {
-      const confirmationResult = await confirmOrderPayment(payment.order._id);
-      if (!confirmationResult.success) {
-        return res.status(500).json({ message: confirmationResult.message });
-      }
+    if (order.user?.email) {
+      await sendEmail(order.user.email, `Order #${order._id} Confirmed`, `Hi ${order.user.name}, your payment has been received. Order ID: ${order._id}, Total: ₹${order.total_amount}`);
     }
 
-    res.json({ message: "Payment verified and order confirmed", payment });
+    return { success: true, message: "Order confirmed and email sent", order };
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Confirm Order Error:", error.message);
+    return { success: false, message: error.message };
   }
 };
 
 // ✅ Refund Payment
-export const refundPayment = async (req, res) => {
+export const refundOrderPayment = async (orderId, amount) => {
   try {
-    const { paymentId, amount } = req.body;
+    const order = await Order.findById(orderId).populate("user", "name email");
+    if (!order) return { success: false, message: "Order not found" };
 
-    const refund = await razorpayInstance.payments.refund(paymentId, { amount: amount * 100 });
+    order.status = "refunded";
+    await order.save();
 
-    const payment = await Payment.findOne({ razorpayPaymentId: paymentId }).populate("order");
-    if (!payment) return res.status(404).json({ message: "Payment not found" });
-
-    payment.status = "refunded";
-    await payment.save();
-
-    // ✅ Update order status and send email
-    if (payment.order) {
-      await refundOrderPayment(payment.order._id, amount);
+    if (order.user?.email) {
+      await sendEmail(order.user.email, `Order #${order._id} Refunded`, `Hi ${order.user.name}, your payment for Order ID ${order._id} has been refunded. Amount: ₹${amount}`);
     }
 
-    res.json({ message: "Refund processed and email sent", refund });
+    return { success: true, message: "Order refunded and email sent", order };
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// ✅ Razorpay Webhook
-// ✅ Razorpay Webhook
-export const razorpayWebhook = async (req, res) => {
-  try {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-
-    // Convert raw body buffer to string
-    const body = req.body.toString();
-
-    // Verify signature
-    const shasum = crypto.createHmac("sha256", secret);
-    shasum.update(body);
-    const digest = shasum.digest("hex");
-
-    if (digest !== req.headers["x-razorpay-signature"]) {
-      return res.status(400).json({ message: "Invalid webhook signature" });
-    }
-
-    const webhookData = JSON.parse(body);
-    const { event, payload } = webhookData;
-
-    // Get payment entity
-    const entity = payload.payment.entity;
-    const payment = await Payment.findOne({ razorpayPaymentId: entity.id }).populate("order");
-
-    if (!payment) return res.status(404).json({ message: "Payment not found" });
-
-    // ✅ Handle events
-    if (event === "payment.captured") {
-      payment.status = "paid";
-      await payment.save();
-
-      if (payment.order) {
-        payment.order.status = "confirmed";
-        await payment.order.save();
-
-        if (payment.order.user?.email) {
-          await sendEmail(
-            payment.order.user.email,
-            `Order #${payment.order._id} Confirmed`,
-            `Hi ${payment.order.user.name}, your payment of ₹${payment.amount} has been received. Order is confirmed.`
-          );
-        }
-      }
-    } else if (event === "payment.failed") {
-      payment.status = "failed";
-      await payment.save();
-
-      if (payment.order) {
-        payment.order.status = "pending"; // or "payment_failed"
-        await payment.order.save();
-
-        if (payment.order.user?.email) {
-          await sendEmail(
-            payment.order.user.email,
-            `Payment Failed for Order #${payment.order._id}`,
-            `Hi ${payment.order.user.name}, your payment of ₹${payment.amount} failed. Please try again.`
-          );
-        }
-      }
-    } else if (event === "payment.refunded") {
-      payment.status = "refunded";
-      await payment.save();
-
-      if (payment.order) {
-        payment.order.status = "refunded";
-        await payment.order.save();
-
-        if (payment.order.user?.email) {
-          await sendEmail(
-            payment.order.user.email,
-            `Order #${payment.order._id} Refunded`,
-            `Hi ${payment.order.user.name}, your payment of ₹${payment.amount} has been refunded.`
-          );
-        }
-      }
-    }
-
-    res.json({ received: true });
-  } catch (error) {
-    console.error("Webhook Error:", error.message);
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// ✅ Get Payment by ID
-export const getPaymentById = async (req, res) => {
-  try {
-    const payment = await Payment.findById(req.params.id).populate("order");
-    if (!payment) return res.status(404).json({ message: "Payment not found" });
-    res.json(payment);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// ✅ Get All Payments (pagination + filters)
-export const getAllPayments = async (req, res) => {
-  try {
-    const { page = 1, limit = 10, status } = req.query;
-    const query = status ? { status } : {};
-
-    const payments = await Payment.find(query)
-      .populate("order")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
-
-    const total = await Payment.countDocuments(query);
-
-    res.json({
-      success: true,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total,
-      totalPages: Math.ceil(total / limit),
-      payments,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Refund Order Error:", error.message);
+    return { success: false, message: error.message };
   }
 };

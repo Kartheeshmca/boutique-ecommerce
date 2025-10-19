@@ -2,8 +2,25 @@ import mongoose from "mongoose";
 
 // Variant sub-schema
 const variantSchema = new mongoose.Schema({
-  color: { type: String, trim: true },
-  size: { type: String, trim: true },
+   color: {
+    type: [String],
+    enum: ["Red", "Blue", "Green", "Black", "White", "Yellow", "Pink", "Gray","Maroon","Purple" ],
+    default: ["Blue", "Black","Maroon","Red"], // ✅ Default color options
+    validate: {
+      validator: (arr) => Array.isArray(arr) && arr.length > 0,
+      message: "At least one color is required",
+    },
+  },
+  size: {
+    type: [String],
+    enum: ["XS", "S", "M", "L", "XL", "XXL"],
+    default: ["S", "M", "L","XL"], // ✅ Default size options
+    validate: {
+      validator: (arr) => Array.isArray(arr) && arr.length > 0,
+      message: "At least one size is required",
+    },
+  },
+  
   sku: {
     type: String,
     required: [true, "SKU is required"],
